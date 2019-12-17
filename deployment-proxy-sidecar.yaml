@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  labels:
+    app: myapp
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: app
+          image: hrishi/psql-tester:latest # Just a pre-build image from the same codebase.
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          # The following environment variables will contain the database host,
+          # user and password to connect to the PostgreSQL instance.
+          env:
+            - name: POSTGRES_HOST
+              value: 127.0.0.1
+            # [START cloudsql_secrets]
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-postgres
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-postgres
+                  key: password
+            # [END cloudsql_secrets]
+        # Change <INSTANCE_CONNECTION_NAME> here to include your GCP
+        # project, the region of your Cloud SQL instance and the name
+        # of your Cloud SQL instance. The format is
+        # $PROJECT:$REGION:$INSTANCE
+        # [START proxy_container]
+        - name: cloudsql-proxy
+          image: gcr.io/cloudsql-docker/gce-proxy:1.14
+          
+          command: ["/cloud_sql_proxy",
+                    "-instances=<INSTANCE_CONNECTION_NAME>=tcp:5432",
+                    # Get the Instance connection name from the CloudSQL dashboard for GCP. Mine is omni-163105:us-west2:xp-ad-demo-24-staging-staging-test8-jj55c
+                    ## [HRISHI] kubectl create secret generic --from-file=credentials.json(This is the same BASE64_ENCODED_JSON that was used dring Crossplane service account creation) 
+                    "-credential_file=/secrets/cloudsql/credentials.json"]
+          # [START cloudsql_security_context]
+          securityContext:
+            runAsUser: 2  # non-root user
+            allowPrivilegeEscalation: false
+          # [END cloudsql_security_context]
+          volumeMounts:
+            - name: cloudsql-instance-credentials
+              mountPath: /secrets/cloudsql
+              readOnly: true
+        # [END proxy_container]
+      # [START volumes]
+      volumes:
+        - name: cloudsql-instance-credentials
+          secret:
+            secretName: cloudsql-instance-credentials
+      # [END volumes]
